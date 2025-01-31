@@ -1,5 +1,6 @@
 import pygame
 from random import randint, choice
+from math import cos, sin
 
 
 pygame.init()
@@ -118,6 +119,22 @@ class ParallaxRect:
         return self.color, self.rect
 
 
+class Decay:
+    decays_imgs = [load_image('zombie_decay1.png'), load_image('zombie_decay2.png'), load_image('zombie_decay3.png'),
+                   load_image('zombie_decay4.png')]
+
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+        self.image = choice(Decay.decays_imgs)
+        self.rect = self.image.get_rect()
+        self.rect.move(x, y)
+        self.rect.x, self.rect.y = self.x, self.y
+        print(self.rect.x, self.rect.y)
+
+    def draw(self):
+        screen.blit(self.image, self.rect)
+
+
 class Enemy:
     enemy_basic_img = load_image("enemy_basic.png")
     enemy_fast_img = load_image("enemy_fast.png")
@@ -152,6 +169,9 @@ class Enemy:
             return self.cost
         return False
 
+    def coords(self):
+        return self.rect.x, self.rect.y
+
     def update(self):
         self.rect.y += self.speed
         self.rect.x = self.x
@@ -184,6 +204,7 @@ class Bullet:
 
     def __init__(self, x, y):
         self.image = Bullet.bullet_img
+        self.direction = 90
         self.rect = self.image.get_rect(center=(x, y))
 
     def update(self):
@@ -203,6 +224,7 @@ def reset():
     enemies.clear()
     bullets.clear()
     parallax.clear()
+    decays.clear()
     base.clear()
     player.__init__()
     enemies = []
@@ -216,6 +238,7 @@ def reset():
 player = Player()
 enemies = []
 bullets = []
+decays = []
 parallax = [ParallaxRect(randint(-60, WIDTH), randint(-60, HEIGHT), 1 / x) for x in range(120, 1, -2)]
 parallax.extend([ParallaxRect(WIDTH // 2, HEIGHT // 2, 1 / x) for x in range(10, 1, -2)])
 parallax.sort()
@@ -259,6 +282,10 @@ while running:
             create_enemy_chance -= 1
 
         player.update()
+
+        for decay in decays:
+            decay.draw()
+
         for enemy in enemies.copy():
             if not enemy.update():
                 enemies.remove(enemy)
@@ -272,6 +299,11 @@ while running:
                     is_dead = enemy.shoot(player.get_damage())
                     if is_dead:
                         player.kill(is_dead)
+                        x_enem, y_enem = enemy.coords()
+                        decays.append(Decay(x_enem, y_enem))
+                        print(decays)
+                        if len(decays) > 50:
+                            decays.remove(decays[0])
                         enemies.remove(enemy)
                     break
 
@@ -310,9 +342,9 @@ while running:
             pygame.draw.rect(screen, rect_color, rect_obj)
         font1 = pygame.font.Font(None, 72)
         font2 = pygame.font.Font(None, 24)
-        lose_text = font1.render('База разрушена.', True, (255, 80, 80))
-        hint_text = font2.render('WASD для 3D эффекта. (Параллакс)', True, (40, 40, 40))
-        hint_text2 = font2.render('Enter для новой игры.', True, (40, 40, 40))
+        lose_text = font1.render('База разрушена', True, (255, 80, 80))
+        hint_text = font2.render('WASD для 3D эффекта (Параллакс)', True, (40, 40, 40))
+        hint_text2 = font2.render('Enter для новой игры', True, (40, 40, 40))
         screen.blit(lose_text, (100, 200))
         screen.blit(hint_text, (32, 32))
         screen.blit(hint_text2, (32, 48))
