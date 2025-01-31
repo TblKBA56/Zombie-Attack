@@ -1,7 +1,7 @@
 import pygame
 from random import randint, choice
 from math import cos, sin, pi
-
+# python 3.11
 
 pygame.init()
 pygame.font.init()
