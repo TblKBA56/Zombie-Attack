@@ -1,13 +1,13 @@
 import pygame
 from random import randint, choice
-from math import cos, sin, pi
+from math import cos, sin, pi, atan2
 # python 3.11
 
 pygame.init()
 pygame.font.init()
 WIDTH = 600
 HEIGHT = 900
-FPS = 60
+FPS = 90
 BASE_HEALTH = 10
 GAME_STATE = 0
 DIFFICULT = 1
@@ -31,12 +31,11 @@ class Player:
     def __init__(self):
         self.image = Player.player_img
         self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 50))
-        self.damage = 25
-        self.cooldown_time = 15 * FPS // 60
-        self.cooldown = 0
-        self.income_multiple = 1
-        self.money = 0
-        self.all_income_moneys = 0
+        (self.damage, self.cooldown_time, self.weapon_accuracy, self.cooldown, self.money, self.all_income_moneys,
+         self.income_multiple) = 0, 0, 0, 0, 1000, 0, 1
+        self.weapons = [True, False, False, False, False, False]
+        self.equip = 0
+        self.select_weapon(self.equip)
 
     def get_coords(self):
         return self.rect.x, self.rect.y
@@ -49,6 +48,30 @@ class Player:
 
     def get_score(self):
         return self.all_income_moneys
+
+    def get_equip(self):
+        return self.equip
+
+    def get_accuracy(self):
+        return self.weapon_accuracy
+
+    def has_weapon(self, index):
+        return self.weapons[index]
+
+    def select_weapon(self, index):
+        if self.has_weapon(index):
+            weapons = {'pistol': [25, 15, 1], 'machine pistol': [20, 12, 2.5], 'assault rifle': [40, 12, 1.4],
+                       'sniper rifle': [120, 60, 0.2], 'shotgun': [20, 25, 2], 'machine gun': [15, 5, 3.5]}
+            self.damage, self.cooldown_time, self.weapon_accuracy = weapons[list(weapons.keys())[index]]
+            self.equip = index
+
+    def buy(self, cost, index):
+        self.money -= cost
+        self.weapons[index] = True
+
+    def in_shop(self) -> bool:
+        x, y = self.get_coords()
+        return x > WIDTH - 100 and y > HEIGHT - 100
 
     def do_shoot(self):
         if self.cooldown <= 0:
@@ -81,6 +104,51 @@ class Player:
 
     def draw(self):
         screen.blit(self.image, self.rect.topleft)
+
+
+class ShopButton:
+    def __init__(self, x, y, weapon_index, cost):
+        self.x, self.y, self.weapon, self.animation, self.w, self.h, self.cost = x, y, weapon_index, 0, 400, 80, cost
+        if player.has_weapon(weapon_index):
+            self.weapon *= -1
+
+    def in_focus(self):
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        return self.x + self.w > mouse_x > self.x and self.y + self.h > mouse_y > self.y
+
+    def buy_weapon(self):
+        if player.get_money() >= self.cost and not self.in_own():
+            player.buy(self.cost, self.get_weapon_index())
+            self.weapon *= -1
+            player.select_weapon(self.get_weapon_index())
+        elif self.in_own():
+            player.select_weapon(self.get_weapon_index())
+
+    def in_own(self):
+        return self.weapon < 0
+
+    def get_weapon_index(self):
+        return self.weapon if self.weapon > 0 else self.weapon * - 1
+
+    def draw(self):
+        anim_mod = self.animation // 30
+        equipped = 20 if self.get_weapon_index() == player.get_equip() else 0
+        if self.weapon > 0:
+            color = (170 + anim_mod, 60 + anim_mod, 60 + anim_mod)
+        else:
+            color = (30 + anim_mod + equipped, 30 + anim_mod + equipped, 30 + anim_mod + equipped)
+        pygame.draw.rect(screen, color, (self.x - anim_mod - equipped, self.y - anim_mod, self.w + anim_mod * 2,
+                                         self.h + anim_mod * 2))
+
+    def update(self):
+        if self.in_focus():
+            if self.animation < 400:
+                self.animation += 2
+        else:
+            if self.animation > 0:
+                self.animation -= 1
+        self.draw()
+        return [self.cost, self.x, self.y, self.get_weapon_index() == player.get_equip()]
 
 
 class ParallaxRect:
@@ -180,13 +248,18 @@ class Decay:
 
 
 class Particle:
-    def __init__(self, x, y, direction, min_radius=2, max_radius=4, color=pygame.Color(100, 10, 10)):
+    def __init__(self, x, y, direction, min_radius=2, max_radius=4, lifetime: int = True,
+                 speed: int = True, color=pygame.Color(100, 10, 10)):
         self.direction = direction
-        self.speed = randint(0, 30) / 17 / FPS * 60
+        if isinstance(speed, bool):
+            speed = randint(0, 30)
+        if isinstance(lifetime, bool):
+            lifetime = 40 + randint(1, 30)
+        self.speed = speed / 17 / FPS * 60
         self.color = color
         self.center_coords = x, y
         self.radius = randint(min_radius, max_radius)
-        self.lifetime = 40 + randint(1, 30) * FPS // 60
+        self.lifetime = lifetime * FPS // 60
 
     def update(self):
         x, y = self.center_coords
@@ -209,31 +282,34 @@ class Enemy:
     def __init__(self, x, y, enemy_type='basic'):
         self.enemy_type = enemy_type
         if enemy_type == 'basic' or enemy_type == 'smart':
-            self.image = Enemy.enemy_basic_img
+            self.orig_image = Enemy.enemy_basic_img
             self.health = 100
             self.damage = 1
             self.cost = 2
             self.speed = 2 + randint(-1, 1)
         elif enemy_type == 'fast':
-            self.image = Enemy.enemy_fast_img
+            self.orig_image = Enemy.enemy_fast_img
             self.health = 30
             self.damage = 1
             self.cost = 3
             self.speed = 3 + randint(-1, 2)
         elif enemy_type == 'strong':
-            self.image = Enemy.enemy_strong_img
+            self.orig_image = Enemy.enemy_strong_img
             self.health = 250
             self.damage = 2
             self.cost = 5
             self.speed = 1 + randint(0, 1)
         self.health, self.speed, self.cost = (self.health * DIFFICULT, self.speed * DIFFICULT / FPS * 60,
                                               int(self.cost * DIFFICULT // 1))
+        self.image = self.orig_image
         self.daze = 0
         self.x = x
         self.y = y
+        self.step = 0
         self.move_diagonal = 0
         self.rect = self.image.get_rect()
         self.rect.move(x, y)
+        self.rect.x, self.rect.y = x, y
 
     def shoot(self, damage):
         self.health -= damage
@@ -250,20 +326,48 @@ class Enemy:
 
     def update(self):
         slow = 1
+        from_x, from_y = self.coords()
+        self.x, self.y = self.coords()
+
+        if self.enemy_type != 'smart':
+            if self.step % 2 == 0:
+                self.step += 2
+            elif self.step % 2 == 1:
+                self.step -= 2
+            if self.step >= 45:
+                self.step -= 3
+            elif self.step <= -45:
+                self.step += 3
+
         if self.daze > 0:
             slow = 1.7
             if self.health >= 30:
                 self.daze -= 1
-        self.y += self.speed / slow
-        self.rect.y = int(self.y // 1)
-        random_diagonal = randint(1, 50)
-        if self.enemy_type == 'smart' and random_diagonal == 50 and self.move_diagonal == 0:
-            self.move_diagonal = randint(-2, 2)
+            else:
+                bleeding = randint(0, 500 * FPS // 60)
+                if bleeding == 500 * FPS // 60:
+                    self.health -= 3
+                    global particles
+                    particles.append(Particle(self.x + 16, self.y + 16, 90 + randint(-6, 6), 3, 5, 80, 5))
+
+        if self.enemy_type == 'smart' and randint(1, 50) == 50 and self.move_diagonal == 0:
+            if WIDTH - 48 > self.x > 48:
+                self.move_diagonal = randint(-2, 2)
+            elif self.x < 48:
+                self.move_diagonal = randint(0, 2)
+            elif self.x > WIDTH - 48:
+                self.move_diagonal = randint(-2, 2)
         elif ((self.enemy_type == 'smart' and self.move_diagonal != 0 and randint(1, 80) == 80)
-              or (self.move_diagonal < 0 and self.x < 32) or (self.move_diagonal > 0 and self.x > WIDTH - 32)):
+              or (self.move_diagonal < 0 and self.x < 48) or (self.move_diagonal > 0 and self.x > WIDTH - 32)):
             self.move_diagonal = 0
-        self.x += self.move_diagonal * self.speed / slow / 1.3
+        self.x += round(self.move_diagonal * (self.speed / slow / 1.5), 2)
+        self.y += round(self.speed / slow, 2)
+        if from_y - self.y <= from_y - 0.1:
+            self.y += 1
+        self.rect.y = self.y
         self.rect.x = self.x
+        self.image = pygame.transform.rotate(self.orig_image, 90 - int(atan2(self.y - from_y, self.x - from_x)
+                                                                       * (180 / pi) // 1))
         if self.rect.bottom > HEIGHT - 32:
             global BASE_HEALTH
             BASE_HEALTH -= self.damage
@@ -289,20 +393,21 @@ class Bullet:
     bullet_img = load_image('bullet.png')
 
     def __init__(self, x, y, accuracy, speed=20):
-        self.image = Bullet.bullet_img
         self.speed = speed * BULLET_SPEED_UPDATE / FPS * 60
-        self.direction = 90 + randint(-accuracy, accuracy)
+        self.x, self.y = x, y
+        self.direction = 90 + randint(-accuracy * 20, accuracy * 20) / 20
+        self.image = pygame.transform.rotate(Bullet.bullet_img, 90 - self.direction)
         self.rect = self.image.get_rect(center=(x, y))
 
     def get_direction(self):
         return self.direction
 
     def update(self):
-        x, y = (self.rect.x + self.speed * -cos(self.direction / 180 * pi),
-                self.rect.y + self.speed * -sin(self.direction / 180 * pi))
-        self.rect.y = y
-        self.rect.x = x
-        if self.rect.y < 10 or self.rect.y > HEIGHT or self.rect.x < -32 or self.rect.x > WIDTH:
+        self.x, self.y = (self.x + self.speed * -cos(self.direction / 180 * pi),
+                          self.y + self.speed * -sin(self.direction / 180 * pi))
+        self.rect.y = self.y
+        self.rect.x = self.x
+        if self.rect.y < -32 or self.rect.y > HEIGHT or self.rect.x < -32 or self.rect.x > WIDTH:
             return False
         return True
 
@@ -311,20 +416,24 @@ class Bullet:
 
 
 def reset():
-    global enemies, bullets, parallax, base, player, types_of_zombie, game_modifies, create_enemy_chance, DIFFICULT, \
-        BASE_HEALTH, GAME_STATE
+    global enemies, bullets, parallax, base, player, types_of_zombie, game_modifies, create_enemy_chance, particles,\
+        buttons, DIFFICULT, BASE_HEALTH, GAME_STATE
     BASE_HEALTH = 10
     GAME_STATE = 0
     DIFFICULT = 1
+    particles.clear()
     enemies.clear()
     bullets.clear()
     parallax.clear()
     decays.clear()
     base.clear()
+    buttons.clear()
     types_of_zombie.clear()
     player.__init__()
     enemies = []
     bullets = []
+    particles = []
+    buttons = [ShopButton(100, 100 * (i + 1), i, weapons_cost[i]) for i in range(6)]
     game_modifies = [0, 0, 0]
     create_enemy_chance = 500
     types_of_zombie = ["basic", "basic", "basic", "fast", "strong"]
@@ -352,6 +461,11 @@ parallax.sort()
 base = [PlayerBase(x * 32, HEIGHT - 16) for x in range(WIDTH // 32 + 2)]
 create_enemy_chance = 500
 game_modifies = [0, 0, 0]
+weapons_cost = [0, 50, 120, 300, 200, 400]
+shoots = False
+buttons = [ShopButton(100, 100 * (i + 1), i, weapons_cost[i]) for i in range(6)]
+font1 = pygame.font.Font(None, 24)
+font2 = pygame.font.Font(None, 72)
 
 
 running = True
@@ -368,10 +482,18 @@ while running:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
                 if ((event.dict.get('button') and event.dict['button'] == 1) or
-                        (event.dict.get('key') and event.dict['key'] == 32)) and player.do_shoot():
-                    bullets.append(Bullet(x_pl + 28, y_pl + 1, 1))
-                elif event.dict.get('key') and event.dict['key'] == 98 and x_pl > WIDTH - 100 and y_pl > HEIGHT - 100:
+                    (event.dict.get('key') and event.dict['key'] == 32)) and player.do_shoot():
+                    if player.get_equip() not in [0, 3, 4]:
+                        shoots = True
+                    bullets.append(Bullet(x_pl + 28, y_pl + 1, player.get_accuracy()))
+                elif event.dict.get('key') and event.dict['key'] == 98 and player.in_shop():
                     GAME_STATE = 2
+            elif event.type == pygame.MOUSEBUTTONUP or event.type == pygame.KEYUP:
+                if ((event.dict.get('button') and event.dict['button'] == 1) or
+                    (event.dict.get('key') and event.dict['key'] == 32)):
+                    shoots = False
+            if shoots and player.do_shoot():
+                bullets.append(Bullet(x_pl + 28, y_pl + 1, player.get_accuracy()))
 
         for particle in particles:
             if particle.update():
@@ -390,7 +512,7 @@ while running:
         if create_enemy == create_enemy_chance // DIFFICULT + 1:
             create_enemy_chance = 500 * FPS / 60
             enemy_type = choice(types_of_zombie)
-            enemies.append(Enemy(randint(32, WIDTH - 32), -32, enemy_type))
+            enemies.append(Enemy(randint(48, WIDTH - 48), -32, enemy_type))
         elif create_enemy_chance > 1:
             create_enemy_chance -= 2.5 * DIFFICULT
 
@@ -402,7 +524,7 @@ while running:
             else:
                 enemy.draw()
             if enemy.rect.colliderect(player.rect):
-                BASE_HEALTH = -1
+                BASE_HEALTH = -140000
 
         for bullet in bullets.copy():
             for enemy in enemies:
@@ -440,12 +562,12 @@ while running:
         for i in range(0, BASE_HEALTH):
             health_draw_obj.draw(i)
 
-        if randint(0, 10000 * FPS // 60) == 10000 * FPS / 60:
-            game_modifies[0] = 240 / FPS * 60
-        elif randint(0, 10000 * FPS // 60) == 10000 * FPS / 60:
-            game_modifies[1] = 240 / FPS * 60
-        elif randint(0, 10000 * FPS // 60) == 10000 * FPS / 60:
-            game_modifies[2] = 240 / FPS * 60
+        if randint(0, 10000 * FPS // 60) == 10000 * FPS // 60:
+            game_modifies[0] = 240 * FPS // 60
+        elif randint(0, 10000 * FPS // 60) == 10000 * FPS // 60:
+            game_modifies[1] = 240 * FPS // 60
+        elif randint(0, 10000 * FPS // 60) == 10000 * FPS // 60:
+            game_modifies[2] = 240 * FPS // 60
         if game_modifies[0] > 0:
             game_modifies[0] -= 1
         if game_modifies[1] > 0:
@@ -453,11 +575,11 @@ while running:
         if game_modifies[2] > 0:
             game_modifies[2] -= 1
 
-        if x_pl > WIDTH - 100 and y_pl > HEIGHT - 100:
+        if player.in_shop():
             font3 = pygame.font.Font(None, 16)
             shop_hint = font3.render('Пауза [b]', True, (120, 120, 10))
             screen.blit(shop_hint, (WIDTH - 90, WIDTH + 200))
-        font1 = pygame.font.Font(None, 24)
+
         moneys = font1.render(f'Денег: {player.get_money()}', True, (128, 128, 128))
         score = font1.render(f'Очки: {player.get_score()}', True, (128, 128, 128))
         screen.blit(moneys, (32, 72))
@@ -490,11 +612,13 @@ while running:
             rect.update()
             rect_color, rect_obj = rect.draw_rect()
             pygame.draw.rect(screen, rect_color, rect_obj)
-        font1 = pygame.font.Font(None, 72)
-        font2 = pygame.font.Font(None, 24)
-        lose_text = font1.render('База разрушена', True, (255, 80, 80))
-        hint_text = font2.render('WASD для 3D эффекта (Параллакс)', True, (40, 40, 40))
-        hint_text2 = font2.render('Enter для новой игры', True, (40, 40, 40))
+        if BASE_HEALTH == -140000:
+            lose_text = 'Защитник погиб'
+        else:
+            lose_text = 'База разрушена'
+        lose_text = font2.render(lose_text, True, (255, 80, 80))
+        hint_text = font1.render('WASD для 3D эффекта (Параллакс)', True, (40, 40, 40))
+        hint_text2 = font1.render('Enter для новой игры', True, (40, 40, 40))
         screen.blit(lose_text, (100, 200))
         screen.blit(hint_text, (32, 32))
         screen.blit(hint_text2, (32, 48))
@@ -509,5 +633,21 @@ while running:
                 key = event.dict['key']
                 if key == 27:
                     GAME_STATE = 0
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.dict.get('button') and event.dict['button'] == 1:
+                for button in buttons:
+                    if button.in_focus():
+                        button.buy_weapon()
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        for button in buttons:
+            cost = button.update()
+            equip_str = ' *Экипировано*' if cost[3] else ''
+            weapon_cost = font1.render(f'Стоимость: {cost[0]}${equip_str}', True, (255, 255, 255))
+            screen.blit(weapon_cost, (cost[1] + 10, cost[2] + 40))
+        moneys = font1.render(f'Денег: {player.get_money()}', True, (128, 128, 128))
+        score = font1.render(f'Очки: {player.get_score()}', True, (128, 128, 128))
+        screen.blit(moneys, (32, 72))
+        screen.blit(score, (32, 92))
+        pygame.display.flip()
+
 
 pygame.quit()
