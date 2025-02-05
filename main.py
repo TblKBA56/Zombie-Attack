@@ -9,7 +9,7 @@ WIDTH = 600
 HEIGHT = 900
 FPS = 90
 BASE_HEALTH = 10
-GAME_STATE = 0
+GAME_STATE = 3
 DIFFICULT = 1
 MOVEMENT_UPDATE = 0.05
 BULLET_SPEED_UPDATE = 1
@@ -22,9 +22,28 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Zombie Attack")
 clock = pygame.time.Clock()
 
+try:
+    with open('score.txt', 'r') as file:
+        if file.readable():
+            BEST_SCORE = int(file.read())
+        else:
+            BEST_SCORE = 0
+        file.close()
+except:
+    with open('score.txt', 'x') as file:
+        file.write('0')
+        file.close()
+    BEST_SCORE = 0
+
 
 def load_image(path):
     return pygame.image.load(path).convert_alpha()
+
+
+def new_record(score):
+    with open('score.txt', 'w') as file:
+        file.write(str(score))
+        file.close()
 
 
 class Player:
@@ -34,7 +53,7 @@ class Player:
         self.image = Player.player_img
         self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 50))
         (self.damage, self.cooldown_time, self.weapon_accuracy, self.cooldown, self.money, self.all_income_moneys,
-         self.income_multiple) = 0, 0, 0, 0, 1000, 0, 1
+         self.income_multiple) = 0, 0, 0, 0, 0, 0, 1
         self.weapons = [True, False, False, False, False, False]
         self.equip = 0
         self.select_weapon(self.equip)
@@ -471,10 +490,10 @@ create_enemy_chance = 500
 game_modifies = [0, 0, 0]
 weapons_cost = [0, 50, 120, 300, 200, 400]
 shoots = False
+start_red, start_green, start_blue = 700, 0, 0
 buttons = [ShopButton(100, 100 * (i + 1), i, weapons_cost[i]) for i in range(6)]
 font1 = pygame.font.Font(None, 24)
 font2 = pygame.font.Font(None, 72)
-
 
 running = True
 while running:
@@ -616,6 +635,9 @@ while running:
         clock.tick(FPS)
     elif GAME_STATE == 1:
         screen.fill((0, 0, 0))
+        if player.get_score() > BEST_SCORE:
+            new_record(player.get_score())
+            BEST_SCORE = player.get_score()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -649,6 +671,7 @@ while running:
         clock.tick(FPS)
     elif GAME_STATE == 2:
         screen.fill((0, 0, 0))
+        pygame.draw.rect(screen, (0, 0, 0, 150), (0, 0, WIDTH, HEIGHT))
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -673,6 +696,29 @@ while running:
         score = font1.render(f'Очки: {player.get_score()}', True, (128, 128, 128))
         screen.blit(moneys, (32, 72))
         screen.blit(score, (32, 92))
+        pygame.display.flip()
+    elif GAME_STATE == 3:
+        screen.fill((start_red // 10, start_green // 10, start_blue // 10))
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                GAME_STATE = 0
+        if start_blue == 0 and start_red > 0 and start_green < 1500:
+            start_red -= 1
+            start_green += 1
+        elif start_blue < 1500 and start_red == 0 and start_green > 0:
+            start_green -= 1
+            start_blue += 1
+        elif start_blue > 0 and start_red < 1500 and start_green == 0:
+            start_blue -= 1
+            start_red += 1
+        start_white = font2.render('Нажмите чтобы начать', True, (255, 255, 255))
+        start_shadow = font2.render('Нажмите чтобы начать', True, (0, 0, 0))
+        best_score = font1.render(f'Рекордный счёт: {BEST_SCORE}', True, (255, 255, 255))
+        screen.blit(start_shadow, (20, 460))
+        screen.blit(start_white, (25, 450))
+        screen.blit(best_score, (25, 520))
         pygame.display.flip()
 
 
