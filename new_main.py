@@ -130,7 +130,11 @@ while running:
 
         for particle in config.particles:
             if particle.update():
-                particles.remove(particle)
+                try:
+                    if particles.index(particle):
+                        particles.remove(particle)
+                except:
+                    pass
 
         if game_modifies[0] > 0:
             fast_spawn_mode.draw()
